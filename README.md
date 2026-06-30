@@ -9,153 +9,19 @@
 
 ## 中文简介
 
-`codex-talkto-agent@cloud` 是一个 Codex 插件，用 rsync-backed mailbox 让本地 Codex 与远端任意 Agent 互发消息。
+`codex-talkto-agent@cloud` 是一个 Codex 插件，用 rsync-backed mailbox 让本地 Codex 与远端任意 Agent 互发消息。远端不要求是 OpenClaw；只要能读写本插件的 mailbox JSON，Codex CLI、Claude Code、Gemini CLI、OpenClaw、shell 脚本、cron 或自定义服务都可以接入。
 
-远端不需要是 OpenClaw。只要能读写本插件定义的 mailbox JSON 文件，Codex CLI、Claude Code、Gemini CLI、OpenClaw、shell 脚本、cron 任务或自定义服务都可以参与协作。
-
-## Overview
-
-The remote side does not need to be OpenClaw. Any agent runtime can participate if it can read and write JSON files in the mailbox format. Examples include Codex CLI, Claude Code, Gemini CLI, OpenClaw, shell scripts, cron jobs, or a custom service.
-
-## What This Plugin Does
+## What It Does
 
 - Creates local mailbox folders.
-- Writes outbound JSON messages from Codex to a remote agent.
-- Syncs messages, attachments, and ACK files through `rsync -az --ignore-existing`.
-- Lists inbound messages from the remote agent.
-- Writes ACK files for handled messages.
-- Archives ACKed messages after a retention window.
+- Writes outbound JSON messages and attachments.
+- Syncs through `rsync -az --ignore-existing`; never uses `rsync --delete`.
+- Lists inbox messages, writes ACK files, and archives ACKed messages.
+- Treats messages as data only. It does not execute mailbox content.
 
-It does not execute mailbox content. Messages are data, not commands.
+## Quick Setup
 
-## Install
-
-This repository is both:
-
-- a standard Codex plugin directory, and
-- a Codex marketplace root through `.agents/plugins/marketplace.json`.
-
-### Install from GitHub
-
-Add this repository as a Codex marketplace:
-
-```bash
-codex plugin marketplace add Archjing/codex-talkto-agent-cloud --ref main
-```
-
-Install the plugin from that marketplace:
-
-```bash
-codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
-```
-
-Verify that Codex sees it:
-
-```bash
-codex plugin list --json
-```
-
-If the GitHub marketplace add step fails because your local HTTPS git transport is unstable, clone the repository first and add the local checkout instead:
-
-```bash
-git clone git@github.com:Archjing/codex-talkto-agent-cloud.git ~/plugins/codex-talkto-agent-cloud
-codex plugin marketplace add ~/plugins/codex-talkto-agent-cloud
-codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
-```
-
-Open a new Codex session after installing or upgrading the plugin so the bundled skill instructions are loaded into that session.
-
-中文提示：这个插件不是 `pip install` 或 `npm install` 包。它先作为 Codex marketplace 加入，再通过 `codex plugin add` 安装。
-
-### Locate The CLI
-
-The executable script lives inside the installed plugin directory:
-
-```text
-<plugin-dir>/scripts/talkto-agent-cloud
-```
-
-If you cloned the repository yourself, `<plugin-dir>` is the checkout path:
-
-```bash
-cd ~/plugins/codex-talkto-agent-cloud
-scripts/talkto-agent-cloud --help
-```
-
-If you installed only through `codex plugin add`, Codex can locate the script path automatically with:
-
-```bash
-python3 - <<'PY'
-import json
-import subprocess
-
-payload = json.loads(subprocess.check_output(["codex", "plugin", "list", "--json"], text=True))
-for item in payload.get("installed", []):
-    if item.get("name") == "codex-talkto-agent-cloud":
-        print(item["source"]["path"] + "/scripts/talkto-agent-cloud")
-        break
-else:
-    raise SystemExit("codex-talkto-agent-cloud is not installed")
-PY
-```
-
-Example:
-
-```bash
-/path/from/codex-plugin-list/scripts/talkto-agent-cloud --help
-```
-
-Manual fallback: `codex plugin list` also prints a table containing the installed plugin path.
-
-For shorter commands, install a user-level command entrypoint:
-
-```bash
-/path/from/codex-plugin-list/scripts/talkto-agent-cloud install-cli
-```
-
-This creates:
-
-```text
-~/.local/bin/talkto-agent-cloud
-```
-
-It does not edit `.zshrc`, `.bashrc`, fish config, PowerShell profiles, or any other shell startup file. If `~/.local/bin` is not on your PATH, the command prints the full path you can use immediately.
-
-You can also choose another directory:
-
-```bash
-/path/from/codex-plugin-list/scripts/talkto-agent-cloud install-cli --bin-dir ~/bin
-```
-
-The rest of this README uses `talkto-agent-cloud` for readability. If the short command is not on PATH, replace it with `<plugin-dir>/scripts/talkto-agent-cloud` or the full path printed by `install-cli`.
-
-### Local Development Install
-
-Clone the repository:
-
-```bash
-git clone https://github.com/Archjing/codex-talkto-agent-cloud.git ~/plugins/codex-talkto-agent-cloud
-cd ~/plugins/codex-talkto-agent-cloud
-```
-
-Add the local checkout as a marketplace:
-
-```bash
-codex plugin marketplace add ~/plugins/codex-talkto-agent-cloud
-codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
-```
-
-If you already maintain a personal marketplace at `~/.agents/plugins/marketplace.json`, you can instead add an entry pointing to `~/plugins/codex-talkto-agent-cloud`.
-
-## Configure
-
-The plugin runtime is config-driven. Installing the plugin does not configure your remote server, mailbox path, or agent IDs.
-
-The easiest path is to let Codex collect the key values from you and run `setup`.
-
-### Natural Language Setup
-
-After installing the plugin, tell Codex something like:
+After installing the plugin, tell Codex only the values it cannot infer:
 
 ```text
 Use codex-talkto-agent@cloud to connect to my remote agent.
@@ -163,9 +29,63 @@ Remote mailbox: user@example.com:/home/user/codex-mailbox
 Remote agent ID: luke
 ```
 
-Codex should run one setup command. If the short command is not available yet, Codex should locate the installed script path using `codex plugin list --json` and call it directly:
+Codex should then run the platform-specific block below.
+
+### Prerequisites
+
+macOS / Linux:
 
 ```bash
+# Required:
+# - Codex CLI with `codex plugin ...` available.
+# - Python 3 available as `python3`.
+# - Git for marketplace clone/fallback.
+# - OpenSSH client and working SSH auth to the remote host.
+# - rsync available locally and on the remote host.
+#
+# Common install examples:
+# macOS: brew install python git rsync
+# Debian/Ubuntu: sudo apt-get install python3 git openssh-client rsync
+codex --version
+python3 --version
+git --version
+ssh -V
+rsync --version
+```
+
+Windows PowerShell:
+
+```powershell
+# Required:
+# - Codex CLI with `codex plugin ...` available.
+# - Python 3 available as `python` or `py -3`.
+# - Git for marketplace clone/fallback.
+# - OpenSSH client and working SSH auth to the remote host.
+# - rsync available in the shell running Codex; WSL/Git Bash/MSYS2/cwRsync are common options.
+#
+# Common install examples:
+# winget install Python.Python.3 Git.Git
+# Optional rsync path: use WSL Ubuntu and install rsync there, or install cwRsync/MSYS2.
+codex --version
+python --version
+git --version
+ssh -V
+rsync --version
+```
+
+### macOS / Linux
+
+```bash
+# Install from the public GitHub marketplace.
+codex plugin marketplace add Archjing/codex-talkto-agent-cloud --ref main
+codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
+
+# If HTTPS git transport is unstable, use the local checkout fallback:
+# git clone git@github.com:Archjing/codex-talkto-agent-cloud.git ~/plugins/codex-talkto-agent-cloud
+# codex plugin marketplace add ~/plugins/codex-talkto-agent-cloud
+# codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
+
+# Locate the installed CLI without manually inspecting `codex plugin list`.
 plugin_cli="$(python3 - <<'PY'
 import json
 import subprocess
@@ -179,138 +99,86 @@ else:
     raise SystemExit("codex-talkto-agent-cloud is not installed")
 PY
 )"
+
+# Replace only these two values for normal setup.
+# setup installs a short CLI entrypoint when possible, writes config,
+# creates local mailbox folders, and runs local doctor.
 "$plugin_cli" setup \
   --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
   --peer-id 'luke' \
   --non-interactive
-```
 
-This installs the short command when possible, writes a ready-to-use config file, creates the local mailbox folders, and runs a local `doctor` check.
-
-The config file is written at:
-
-```text
-~/.config/codex-talkto-agent-cloud/config.json
-```
-
-Default values:
-
-- local mailbox: `~/.local/share/codex-talkto-agent-cloud/mailbox`
-- local agent ID: `codex`
-- thread ID: `default`
-- archive retention: `14` days
-
-You can override them when needed:
-
-```bash
-talkto-agent-cloud setup \
-  --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
-  --peer-id 'luke' \
-  --self-id 'codex-laptop' \
-  --thread-id 'ops' \
-  --local-root '~/codex-mailbox' \
-  --non-interactive
-```
-
-Run a local configuration check:
-
-```bash
-talkto-agent-cloud doctor
-```
-
-Run a remote dry-run sync check:
-
-```bash
+# Optional: verify real SSH/rsync access to the remote mailbox.
 talkto-agent-cloud doctor --check-remote
 ```
 
-中文提示：正常使用不需要编辑 shell 启动文件，也不需要手写环境变量。优先让 Codex 调用 `setup` 一次完成命令入口、JSON 配置和本地检查。
+### Windows PowerShell
 
-### Step-By-Step Setup
+```powershell
+# Install from the public GitHub marketplace.
+codex plugin marketplace add Archjing/codex-talkto-agent-cloud --ref main
+codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
 
-If you want to run each step separately:
+# If HTTPS git transport is unstable, use the local checkout fallback:
+# git clone git@github.com:Archjing/codex-talkto-agent-cloud.git "$HOME\plugins\codex-talkto-agent-cloud"
+# codex plugin marketplace add "$HOME\plugins\codex-talkto-agent-cloud"
+# codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
 
-```bash
-<plugin-dir>/scripts/talkto-agent-cloud install-cli
-talkto-agent-cloud configure \
-  --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
-  --peer-id 'luke' \
+# Locate the installed Python CLI. Use `py -3` instead of `python` if needed.
+$plugins = codex plugin list --json | ConvertFrom-Json
+$plugin = $plugins.installed | Where-Object { $_.name -eq "codex-talkto-agent-cloud" } | Select-Object -First 1
+if (-not $plugin) { throw "codex-talkto-agent-cloud is not installed" }
+$pluginCliPy = Join-Path $plugin.source.path "scripts\talkto_agent_cloud.py"
+
+# Replace only these two values for normal setup.
+# Native PowerShell calls the Python CLI directly; no shell profile edits are required.
+python $pluginCliPy configure `
+  --remote-rsync "user@example.com:/home/user/codex-mailbox" `
+  --peer-id "luke" `
   --non-interactive
-talkto-agent-cloud doctor
+
+# Local check; creates mailbox folders if needed.
+python $pluginCliPy doctor
+
+# Optional: verify real SSH/rsync access to the remote mailbox.
+python $pluginCliPy doctor --check-remote
 ```
 
-### Config Lookup
-
-The bundled CLI loads configuration in this order:
-
-1. `--config /path/to/config.json`
-2. `CODEX_TALKTO_AGENT_CONFIG`
-3. `~/.config/codex-talkto-agent-cloud/config.json`
-
-Important: `--config` is a global option and must appear before the subcommand:
-
-```bash
-talkto-agent-cloud --config ./config.local.json sync --dry-run
-```
-
-### Manual Template Mode
-
-If you prefer to edit JSON by hand, create the default config template:
-
-```bash
-talkto-agent-cloud init-config
-```
-
-This writes:
+## Configuration Notes
 
 ```text
-~/.config/codex-talkto-agent-cloud/config.json
+# Config lookup order:
+# 1. --config /path/to/config.json
+# 2. CODEX_TALKTO_AGENT_CONFIG
+# 3. ~/.config/codex-talkto-agent-cloud/config.json
+#
+# Default setup values:
+# - local_root: ~/.local/share/codex-talkto-agent-cloud/mailbox
+# - self_id: codex
+# - thread_id: default
+# - archive_after_days: 14
+#
+# Environment variables are optional and process-scoped:
+# - Prefer config files for durable setup.
+# - Set environment variables in the terminal/session/launcher that starts Codex.
+# - Do not assume zsh, bash, fish, PowerShell profile files, or .env loading.
+# - The plugin does not read .env files and does not edit shell startup files.
+#
+# Built-in environment lookup:
+# - CODEX_TALKTO_AGENT_CONFIG changes the config file path.
+#
+# Config value placeholders are expanded after the config file is loaded:
+# - ${VAR} requires VAR to be set.
+# - ${VAR:-default} uses default when VAR is unset.
+# - Common template names:
+#   CODEX_TALKTO_REMOTE_RSYNC
+#   CODEX_TALKTO_LOCAL_ROOT
+#   CODEX_TALKTO_SELF_ID
+#   CODEX_TALKTO_PEER_ID
+#   CODEX_TALKTO_THREAD_ID
 ```
 
-The template uses environment placeholders:
-
-```json
-{
-  "local_root": "${CODEX_TALKTO_LOCAL_ROOT:-~/codex-talkto-agent-cloud/mailbox}",
-  "remote": {
-    "rsync_root": "${CODEX_TALKTO_REMOTE_RSYNC}"
-  },
-  "self_id": "${CODEX_TALKTO_SELF_ID:-codex}",
-  "peer_id": "${CODEX_TALKTO_PEER_ID:-remote-agent}",
-  "thread_id": "${CODEX_TALKTO_THREAD_ID:-default}",
-  "archive_after_days": 14
-}
-```
-
-### Optional Environment Variables
-
-Environment variables are optional. They are useful when you want one config file to work across different machines.
-
-The CLI expands environment variables after reading the JSON config file:
-
-- `${VAR}` requires `VAR` to be set. If it is missing, the command exits with an error.
-- `${VAR:-default}` uses `default` when `VAR` is unset.
-- `.env` files are not loaded automatically. If you use one, source it before running the CLI.
-
-For example, in the current shell session:
-
-```bash
-export CODEX_TALKTO_REMOTE_RSYNC='user@example.com:/home/user/codex-mailbox'
-export CODEX_TALKTO_LOCAL_ROOT="$HOME/codex-talkto-agent-cloud/mailbox"
-export CODEX_TALKTO_SELF_ID='codex'
-export CODEX_TALKTO_PEER_ID='remote-agent'
-export CODEX_TALKTO_THREAD_ID='default'
-```
-
-If you choose to persist environment variables, put them wherever your own shell or launcher already loads environment settings. This plugin does not assume zsh, bash, fish, PowerShell, or any specific terminal.
-
-Codex Desktop note: environment variables are inherited from the process that launches the command. Already-running Codex sessions may not see variables added later. For the simplest setup, prefer `setup`, which writes concrete JSON values and does not depend on shell startup behavior.
-
-中文提示：插件不会自己读取 `.env`。它只读取当前进程环境变量，或者读取 `--config` / `CODEX_TALKTO_AGENT_CONFIG` 指向的 JSON 配置文件。
-
-### Config Without Environment Variables
-
-You can also write concrete values directly in the config file:
+Manual config example:
 
 ```json
 {
@@ -325,94 +193,54 @@ You can also write concrete values directly in the config file:
 }
 ```
 
-Do not put secrets, tokens, cookies, private keys, or passwords in this config. Use normal SSH key management for rsync access.
+## Common Commands
 
-### Configuration Checklist
-
-Before sending real messages, verify:
-
-- `rsync` is installed locally.
-- SSH access to `user@example.com` works.
-- The remote mailbox parent directory exists and is writable.
-- `remote.rsync_root` points to the remote mailbox root, not to a single message folder.
-- `self_id` and `peer_id` differ.
-
-Run a local check:
+macOS / Linux:
 
 ```bash
+# Write config only; useful for step-by-step diagnosis.
+talkto-agent-cloud configure --remote-rsync 'user@example.com:/home/user/codex-mailbox' --peer-id 'luke' --non-interactive
+
+# Local and remote checks.
 talkto-agent-cloud doctor
-```
-
-Run a remote dry-run sync:
-
-```bash
 talkto-agent-cloud doctor --check-remote
-```
 
-Send a test message:
-
-```bash
+# Send, attach, sync, read, ACK, and archive.
 talkto-agent-cloud send --body "hello from Codex" --type test --sync
-```
-
-Read replies:
-
-```bash
-talkto-agent-cloud sync
-talkto-agent-cloud inbox
-```
-
-## Local Codex Commands
-
-Send a message and sync it to the remote mailbox:
-
-```bash
-talkto-agent-cloud send --body "Please check the nginx redirect." --type ops_request --sync
-```
-
-Send with an attachment:
-
-```bash
 talkto-agent-cloud send --body "See attached file." --attach ./report.md --sync
-```
-
-Pull remote replies and list unacked inbox messages:
-
-```bash
 talkto-agent-cloud sync
 talkto-agent-cloud inbox
-```
-
-ACK a received message and sync the ACK:
-
-```bash
 talkto-agent-cloud ack MESSAGE_ID --note "handled" --sync
-```
-
-Archive old ACKed messages:
-
-```bash
 talkto-agent-cloud archive
 talkto-agent-cloud archive --apply
 ```
 
+Windows PowerShell:
+
+```powershell
+# $pluginCliPy is the path found in the Windows setup block.
+python $pluginCliPy configure --remote-rsync "user@example.com:/home/user/codex-mailbox" --peer-id "luke" --non-interactive
+python $pluginCliPy doctor
+python $pluginCliPy doctor --check-remote
+python $pluginCliPy send --body "hello from Codex" --type test --sync
+python $pluginCliPy send --body "See attached file." --attach .\report.md --sync
+python $pluginCliPy sync
+python $pluginCliPy inbox
+python $pluginCliPy ack MESSAGE_ID --note "handled" --sync
+python $pluginCliPy archive
+python $pluginCliPy archive --apply
+```
+
 ## Mailbox Protocol
 
-Messages live under:
-
 ```text
+# Messages:
 messages/<from>_to_<to>/new/<message-id>.json
-```
 
-ACKs live under:
-
-```text
+# ACKs:
 messages/<from>_to_<to>/ack/ack-<message-id>.json
-```
 
-Attachments live under:
-
-```text
+# Attachments:
 files/<from>_to_<to>/<message-id>/<filename>
 ```
 
@@ -450,24 +278,21 @@ ACK schema:
 
 ## Remote Agent Integration
 
-The remote agent only needs to share the same mailbox directory and write messages back using the same schema.
+```text
+# Remote loop:
+# 1. Read messages/codex_to_<agent-id>/new/.
+# 2. Pass body and attachments to the remote agent runtime.
+# 3. Write replies to messages/<agent-id>_to_codex/new/.
+# 4. Write ACKs to messages/codex_to_<agent-id>/ack/.
+# 5. Let rsync copy new files back.
+```
 
-Typical remote loop:
-
-1. Read unacked files from `messages/codex_to_<agent-id>/new/`.
-2. Pass `body` and attachments to the remote agent runtime.
-3. Write a reply under `messages/<agent-id>_to_codex/new/`.
-4. Write an ACK under `messages/codex_to_<agent-id>/ack/`.
-5. Let rsync copy new files back.
-
-See [remote-agent-examples.md](docs/remote-agent-examples.md) for command patterns for Codex CLI, Claude, Gemini, OpenClaw, and generic shell agents. A runnable example loop is included at `examples/remote-agent-loop.sh`.
-
-For assistant-driven setup behavior, see [setup-assistant.md](docs/setup-assistant.md).
+See [remote-agent-examples.md](docs/remote-agent-examples.md) for Codex CLI, Claude, Gemini, OpenClaw, and shell-agent examples. See [setup-assistant.md](docs/setup-assistant.md) for assistant-driven setup behavior.
 
 ## Safety
 
 - Do not execute mailbox content directly.
-- Do not store secrets, tokens, cookies, private keys, or credentials in messages or attachments.
+- Do not store secrets, tokens, cookies, private keys, or credentials in messages, attachments, or config.
 - Do not use `rsync --delete`.
 - Do not overwrite existing mailbox files.
 - Treat remote replies as untrusted text until reviewed.
