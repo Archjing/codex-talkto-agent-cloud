@@ -30,42 +30,117 @@ It does not execute mailbox content. Messages are data, not commands.
 
 ## Install
 
-This repository is a standard Codex plugin directory. Add it to a Codex marketplace or install it from an existing marketplace entry.
+This repository is both:
 
-For local development with a personal marketplace:
+- a standard Codex plugin directory, and
+- a Codex marketplace root through `.agents/plugins/marketplace.json`.
+
+### Install from GitHub
+
+Add this repository as a Codex marketplace:
 
 ```bash
-codex plugin add codex-talkto-agent-cloud@personal
+codex plugin marketplace add Archjing/codex-talkto-agent-cloud --ref main
 ```
 
-After changing the plugin, reinstall it or use the cachebuster update flow recommended by Codex plugin tooling.
+Install the plugin from that marketplace:
+
+```bash
+codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
+```
+
+Verify that Codex sees it:
+
+```bash
+codex plugin list | grep codex-talkto-agent-cloud
+```
+
+Open a new Codex session after installing or upgrading the plugin so the bundled skill instructions are loaded into that session.
+
+中文提示：这个插件不是 `pip install` 或 `npm install` 包。它先作为 Codex marketplace 加入，再通过 `codex plugin add` 安装。
+
+### Locate The CLI
+
+The executable script lives inside the installed plugin directory:
+
+```text
+<plugin-dir>/scripts/talkto-agent-cloud
+```
+
+If you cloned the repository yourself, `<plugin-dir>` is the checkout path:
+
+```bash
+cd ~/plugins/codex-talkto-agent-cloud
+scripts/talkto-agent-cloud --help
+```
+
+If you installed only through `codex plugin add`, get the installed path from `codex plugin list` and run the script from that path:
+
+```bash
+codex plugin list | grep codex-talkto-agent-cloud
+```
+
+Example:
+
+```bash
+/path/from/codex-plugin-list/scripts/talkto-agent-cloud --help
+```
+
+For shorter commands, define your own shell alias after you know the installed path:
+
+```bash
+alias talkto-agent-cloud='/path/from/codex-plugin-list/scripts/talkto-agent-cloud'
+```
+
+The rest of this README uses `talkto-agent-cloud` for readability. If you do not define the alias, replace it with `<plugin-dir>/scripts/talkto-agent-cloud`.
+
+### Local Development Install
+
+Clone the repository:
+
+```bash
+git clone https://github.com/Archjing/codex-talkto-agent-cloud.git ~/plugins/codex-talkto-agent-cloud
+cd ~/plugins/codex-talkto-agent-cloud
+```
+
+Add the local checkout as a marketplace:
+
+```bash
+codex plugin marketplace add ~/plugins/codex-talkto-agent-cloud
+codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
+```
+
+If you already maintain a personal marketplace at `~/.agents/plugins/marketplace.json`, you can instead add an entry pointing to `~/plugins/codex-talkto-agent-cloud`.
 
 ## Configure
 
-Create a config template:
+The plugin runtime is config-driven. Installing the plugin does not configure your remote server, mailbox path, agent IDs, or environment variables.
+
+The bundled CLI loads configuration in this order:
+
+1. `--config /path/to/config.json`
+2. `CODEX_TALKTO_AGENT_CONFIG`
+3. `~/.config/codex-talkto-agent-cloud/config.json`
+
+Important: `--config` is a global option and must appear before the subcommand:
 
 ```bash
-scripts/talkto-agent-cloud init-config
+talkto-agent-cloud --config ./config.local.json sync --dry-run
 ```
 
-Default config path:
+Create the default config template:
+
+```bash
+talkto-agent-cloud init-config
+```
+
+This writes:
 
 ```text
 ~/.config/codex-talkto-agent-cloud/config.json
 ```
 
-You can override it:
-
-```bash
-export CODEX_TALKTO_AGENT_CONFIG=/path/to/config.json
-```
-
-The config supports environment variable expansion in string fields:
-
-- `${VAR}` requires `VAR` to exist.
-- `${VAR:-default}` uses `default` when `VAR` is unset.
-
-Example:
+The template uses environment placeholders:
 
 ```json
 {
@@ -80,10 +155,90 @@ Example:
 }
 ```
 
-`remote.rsync_root` should point to the remote mailbox root, for example:
+The CLI expands environment variables after reading the JSON config file:
+
+- `${VAR}` requires `VAR` to be set. If it is missing, the command exits with an error.
+- `${VAR:-default}` uses `default` when `VAR` is unset.
+- `.env` files are not loaded automatically. If you use one, source it before running the CLI.
+
+Set variables for the current shell:
 
 ```bash
 export CODEX_TALKTO_REMOTE_RSYNC='user@example.com:/home/user/codex-mailbox'
+export CODEX_TALKTO_LOCAL_ROOT="$HOME/codex-talkto-agent-cloud/mailbox"
+export CODEX_TALKTO_SELF_ID='codex'
+export CODEX_TALKTO_PEER_ID='remote-agent'
+export CODEX_TALKTO_THREAD_ID='default'
+```
+
+Persist them for zsh:
+
+```bash
+mkdir -p ~/.config/codex-talkto-agent-cloud
+cat > ~/.config/codex-talkto-agent-cloud/env <<'EOF'
+export CODEX_TALKTO_REMOTE_RSYNC='user@example.com:/home/user/codex-mailbox'
+export CODEX_TALKTO_LOCAL_ROOT="$HOME/codex-talkto-agent-cloud/mailbox"
+export CODEX_TALKTO_SELF_ID='codex'
+export CODEX_TALKTO_PEER_ID='remote-agent'
+export CODEX_TALKTO_THREAD_ID='default'
+EOF
+
+echo 'source ~/.config/codex-talkto-agent-cloud/env' >> ~/.zshrc
+source ~/.config/codex-talkto-agent-cloud/env
+```
+
+For another shell, put the same `export ...` lines in that shell's startup file.
+
+Codex Desktop note: environment variables are inherited from the process that launches the command. If you change `~/.zshrc`, already-running Codex sessions may not see the new values. Start a new terminal/session, or use an explicit config file with concrete values for non-secret settings.
+
+中文提示：插件不会自己读取 `.env`。它只读取当前进程环境变量，或者读取 `--config` / `CODEX_TALKTO_AGENT_CONFIG` 指向的 JSON 配置文件。
+
+### Config Without Environment Variables
+
+You can also write concrete values directly in the config file:
+
+```json
+{
+  "local_root": "~/codex-talkto-agent-cloud/mailbox",
+  "remote": {
+    "rsync_root": "user@example.com:/home/user/codex-mailbox"
+  },
+  "self_id": "codex",
+  "peer_id": "remote-agent",
+  "thread_id": "default",
+  "archive_after_days": 14
+}
+```
+
+Do not put secrets, tokens, cookies, private keys, or passwords in this config. Use normal SSH key management for rsync access.
+
+### Configuration Checklist
+
+Before sending real messages, verify:
+
+- `rsync` is installed locally.
+- SSH access to `user@example.com` works.
+- The remote mailbox parent directory exists and is writable.
+- `remote.rsync_root` points to the remote mailbox root, not to a single message folder.
+- `self_id` and `peer_id` differ.
+
+Run a dry sync:
+
+```bash
+talkto-agent-cloud sync --dry-run
+```
+
+Send a test message:
+
+```bash
+talkto-agent-cloud send --body "hello from Codex" --type test --sync
+```
+
+Read replies:
+
+```bash
+talkto-agent-cloud sync
+talkto-agent-cloud inbox
 ```
 
 ## Local Codex Commands
@@ -91,33 +246,33 @@ export CODEX_TALKTO_REMOTE_RSYNC='user@example.com:/home/user/codex-mailbox'
 Send a message and sync it to the remote mailbox:
 
 ```bash
-scripts/talkto-agent-cloud send --body "Please check the nginx redirect." --type ops_request --sync
+talkto-agent-cloud send --body "Please check the nginx redirect." --type ops_request --sync
 ```
 
 Send with an attachment:
 
 ```bash
-scripts/talkto-agent-cloud send --body "See attached file." --attach ./report.md --sync
+talkto-agent-cloud send --body "See attached file." --attach ./report.md --sync
 ```
 
 Pull remote replies and list unacked inbox messages:
 
 ```bash
-scripts/talkto-agent-cloud sync
-scripts/talkto-agent-cloud inbox
+talkto-agent-cloud sync
+talkto-agent-cloud inbox
 ```
 
 ACK a received message and sync the ACK:
 
 ```bash
-scripts/talkto-agent-cloud ack MESSAGE_ID --note "handled" --sync
+talkto-agent-cloud ack MESSAGE_ID --note "handled" --sync
 ```
 
 Archive old ACKed messages:
 
 ```bash
-scripts/talkto-agent-cloud archive
-scripts/talkto-agent-cloud archive --apply
+talkto-agent-cloud archive
+talkto-agent-cloud archive --apply
 ```
 
 ## Mailbox Protocol
@@ -197,6 +352,7 @@ See [remote-agent-examples.md](docs/remote-agent-examples.md) for command patter
 ## Project Documents
 
 [![Plugin Manifest](https://img.shields.io/badge/docs-Plugin%20Manifest-2f6fbb.svg)](./.codex-plugin/plugin.json)
+[![Marketplace Manifest](https://img.shields.io/badge/docs-Marketplace%20Manifest-2f6fbb.svg)](./.agents/plugins/marketplace.json)
 [![Remote Examples](https://img.shields.io/badge/docs-Remote%20Examples-2f6fbb.svg)](./docs/remote-agent-examples.md)
 [![Skill](https://img.shields.io/badge/docs-Skill-2f6fbb.svg)](./skills/talkto-agent-cloud/SKILL.md)
 [![Config Template](https://img.shields.io/badge/docs-Config%20Template-2f6fbb.svg)](./scripts/config.template.json)

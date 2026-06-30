@@ -1,0 +1,20 @@
+{
+  "name": "codex-talkto-agent-cloud",
+  "interface": {
+    "displayName": "codex-talkto-agent@cloud"
+  },
+  "plugins": [
+    {
+      "name": "codex-talkto-agent-cloud",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

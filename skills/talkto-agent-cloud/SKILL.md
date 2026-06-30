@@ -11,14 +11,29 @@ Use the bundled CLI instead of retyping mailbox logic:
 scripts/talkto-agent-cloud --help
 ```
 
+If the current working directory is not the plugin root, first locate the installed plugin path with:
+
+```bash
+codex plugin list | grep codex-talkto-agent-cloud
+```
+
+Then run:
+
+```bash
+<plugin-dir>/scripts/talkto-agent-cloud --help
+```
+
 ## Configuration
 
 Do not hardcode server addresses, agent IDs, remote paths, or thread IDs in answers or scripts. Require the user to fill a local config file.
 
 Default config lookup order:
 
-1. `CODEX_TALKTO_AGENT_CONFIG`
-2. `~/.config/codex-talkto-agent-cloud/config.json`
+1. `--config /path/to/config.json`
+2. `CODEX_TALKTO_AGENT_CONFIG`
+3. `~/.config/codex-talkto-agent-cloud/config.json`
+
+`--config` is a global option and must appear before the subcommand.
 
 Create a template:
 
@@ -39,6 +54,8 @@ String fields support environment variable expansion:
 
 - `${VAR}` requires the environment variable.
 - `${VAR:-default}` uses a default when the variable is unset.
+
+The CLI reads variables from the current process environment. It does not auto-load `.env` files or shell startup files.
 
 ## Commands
 
