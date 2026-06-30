@@ -1,0 +1,10 @@
+{
+  "local_root": "${CODEX_TALKTO_LOCAL_ROOT:-~/codex-talkto-agent-cloud/mailbox}",
+  "remote": {
+    "rsync_root": "${CODEX_TALKTO_REMOTE_RSYNC}"
+  },
+  "self_id": "${CODEX_TALKTO_SELF_ID:-codex}",
+  "peer_id": "${CODEX_TALKTO_PEER_ID:-remote-agent}",
+  "thread_id": "${CODEX_TALKTO_THREAD_ID:-default}",
+  "archive_after_days": 14
+}

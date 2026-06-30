@@ -1,0 +1,33 @@
+{
+  "name": "codex-talkto-agent-cloud",
+  "version": "0.1.0",
+  "description": "Codex plugin for rsync mailbox messaging with remote agents. Codex 通过 rsync mailbox 与远端任意 Agent 互发消息的插件。",
+  "author": {
+    "name": "ZJ"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "agent",
+    "mailbox",
+    "rsync",
+    "automation"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "codex-talkto-agent@cloud",
+    "shortDescription": "Exchange messages with remote agents through a safe rsync mailbox. 通过安全 rsync mailbox 与远端 Agent 互发消息。",
+    "longDescription": "Provides a configurable file mailbox bridge for local Codex to exchange text messages and attachments with a user-specified remote agent. The remote side can be Codex CLI, Claude, Gemini, OpenClaw, a shell script, or any service that reads and writes the mailbox JSON protocol. Server addresses, agent IDs, mailbox paths, and thread IDs come from local config and environment variables.",
+    "developerName": "ZJ",
+    "category": "Productivity",
+    "capabilities": [
+      "Write",
+      "Automation"
+    ],
+    "defaultPrompt": [
+      "Set up talkto-agent cloud config.",
+      "Check my cloud agent inbox.",
+      "Send a mailbox message to my cloud agent."
+    ]
+  }
+}
