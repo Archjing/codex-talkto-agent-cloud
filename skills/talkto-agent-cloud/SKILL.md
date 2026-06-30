@@ -40,6 +40,7 @@ When the user asks to set up the plugin, prefer the low-friction `setup` flow. A
 
 - Required: remote mailbox rsync root, such as `user@host:/path/to/mailbox`.
 - Required: remote agent ID, such as `luke`, `claude`, or `remote-agent`.
+- Required for full automation: remote agent runtime, one of `codex`, `claude`, `gemini`, `openclaw`, or `shell`.
 - Optional: local agent ID; default `codex`.
 - Optional: thread ID; default `default`.
 - Optional: local mailbox path; default `~/.local/share/codex-talkto-agent-cloud/mailbox`.
@@ -67,6 +68,28 @@ PY
 ```
 
 `setup` installs the short CLI entrypoint when possible, writes the config file, creates local mailbox folders, and runs local `doctor`.
+
+After local setup, send the remote bootstrap package unless the user only wants local-side configuration:
+
+```bash
+talkto-agent-cloud send-remote-setup --agent-kind '<codex|claude|gemini|openclaw|shell>' --sync
+```
+
+For `shell`, also pass `--agent-command '<remote-command-that-accepts-body-file>'`.
+
+This writes a `remote_setup` mailbox message whose body is a prompt for the remote agent. It also attaches:
+
+- `remote-agent.config.json`
+- `talkto_agent_cloud.py`
+
+The user should give the setup prompt and attachments to the remote agent. The remote agent must save both files and start one of:
+
+```bash
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run --once
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run
+```
+
+Cron and systemd can wrap the same commands. Do not tell the user that sync alone makes the remote agent read messages; the remote side needs this consumer loop.
 
 Run `doctor --check-remote` only when the user wants to verify SSH/rsync connectivity. Do not modify shell startup files such as `.zshrc`, `.bashrc`, fish config, or PowerShell profiles unless the user explicitly asks.
 
@@ -109,6 +132,9 @@ The CLI reads variables from the current process environment. It does not auto-l
 - `inbox`: list messages from peer to self; default output skips ACKed messages.
 - `ack`: write `ack-<message-id>.json` atomically; use `--sync` to push immediately.
 - `archive`: move only ACKed messages older than the configured threshold into `archive/YYYY-MM/<direction>/`.
+- `send-remote-setup`: send a first-run prompt with remote config and runner attachments.
+- `remote-init-config`: write remote-side runner config.
+- `remote-run`: run the remote-side mailbox consumer once or as a loop.
 
 ## Remote agents
 

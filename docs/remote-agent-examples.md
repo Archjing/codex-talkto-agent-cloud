@@ -13,7 +13,30 @@ THREAD_ID=default
 
 ## Runnable Loop
 
-The plugin includes a runnable remote-side example:
+Recommended first-run flow:
+
+1. Local Codex runs `talkto-agent-cloud send-remote-setup --agent-kind codex --sync`.
+2. The user gives that `remote_setup` message to the remote agent.
+3. The remote agent saves both attachments in one directory:
+   - `remote-agent.config.json`
+   - `talkto_agent_cloud.py`
+4. The remote agent runs one of:
+
+```bash
+# Process pending messages once.
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run --once
+
+# Or keep polling.
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run
+```
+
+The same runner can be invoked by cron or systemd. For cron:
+
+```cron
+* * * * * cd ~/codex-talkto-agent-cloud && python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run --once >> remote-agent.log 2>&1
+```
+
+The plugin also includes a standalone shell example:
 
 ```bash
 MAILBOX_ROOT=/home/user/codex-mailbox \
@@ -114,6 +137,20 @@ Then write `REPLY` back using the minimal reply writer above and ACK the origina
 On a remote machine with Codex CLI:
 
 ```bash
+python3 talkto_agent_cloud.py \
+  remote-init-config \
+  --output remote-agent.config.json \
+  --mailbox-root /home/user/codex-mailbox \
+  --self-id remote-agent \
+  --peer-id codex \
+  --agent-kind codex \
+  --non-interactive
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run --once
+```
+
+Manual equivalent:
+
+```bash
 MESSAGE_JSON="$MAILBOX_ROOT/messages/codex_to_$LOCAL_ID/new/<message-id>.json"
 BODY="$(jq -r '.body' "$MESSAGE_JSON")"
 REPLY="$(codex exec "$BODY")"
@@ -148,6 +185,20 @@ Then write `REPLY` to `messages/$LOCAL_ID_to_codex/new/` and ACK the original me
 ## OpenClaw
 
 OpenClaw can also be used as the remote agent, but it is not required:
+
+```bash
+python3 talkto_agent_cloud.py \
+  remote-init-config \
+  --output remote-agent.config.json \
+  --mailbox-root /home/user/codex-mailbox \
+  --self-id remote-agent \
+  --peer-id codex \
+  --agent-kind openclaw \
+  --non-interactive
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run --once
+```
+
+Manual equivalent:
 
 ```bash
 MESSAGE_JSON="$MAILBOX_ROOT/messages/codex_to_$LOCAL_ID/new/<message-id>.json"

@@ -17,6 +17,8 @@
 - Writes outbound JSON messages and attachments.
 - Syncs through `rsync -az --ignore-existing`; never uses `rsync --delete`.
 - Lists inbox messages, writes ACK files, and archives ACKed messages.
+- Sends a first-run remote setup prompt with remote config and runner attachments.
+- Provides a remote-side runner for loop, cron, systemd, or OpenClaw-style integration.
 - Treats messages as data only. It does not execute mailbox content.
 
 ## Quick Setup
@@ -110,6 +112,10 @@ PY
 
 # Optional: verify real SSH/rsync access to the remote mailbox.
 talkto-agent-cloud doctor --check-remote
+
+# Send the remote agent its setup prompt plus remote config and runner attachments.
+# Use codex, claude, gemini, openclaw, or shell.
+talkto-agent-cloud send-remote-setup --agent-kind codex --sync
 ```
 
 ### Windows PowerShell
@@ -142,6 +148,38 @@ python $pluginCliPy doctor
 
 # Optional: verify real SSH/rsync access to the remote mailbox.
 python $pluginCliPy doctor --check-remote
+
+# Send the remote agent its setup prompt plus remote config and runner attachments.
+# Use codex, claude, gemini, openclaw, or shell.
+python $pluginCliPy send-remote-setup --agent-kind codex --sync
+```
+
+## Remote Bootstrap Flow
+
+```text
+# 1. Local Codex installs and configures this plugin.
+# 2. Local Codex sends one remote_setup message:
+#    - body: standard setup prompt for the remote agent
+#    - attachments: remote-agent.config.json and talkto_agent_cloud.py
+# 3. The user gives that setup prompt to the remote agent.
+# 4. The remote agent saves the attachments, verifies config, and starts one of:
+#    - remote-run --once for manual processing
+#    - remote-run for a long-running loop
+#    - cron with remote-run --once
+#    - systemd service running remote-run
+#    - OpenClaw integration through agent.kind=openclaw
+```
+
+Remote one-shot command after saving attachments on the remote machine:
+
+```bash
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run --once
+```
+
+Remote loop command:
+
+```bash
+python3 talkto_agent_cloud.py --config remote-agent.config.json remote-run
 ```
 
 ## Configuration Notes
@@ -166,6 +204,7 @@ python $pluginCliPy doctor --check-remote
 #
 # Built-in environment lookup:
 # - CODEX_TALKTO_AGENT_CONFIG changes the config file path.
+# - CODEX_TALKTO_REMOTE_AGENT_CONFIG changes the remote runner config path.
 #
 # Config value placeholders are expanded after the config file is loaded:
 # - ${VAR} requires VAR to be set.
@@ -207,6 +246,7 @@ talkto-agent-cloud doctor --check-remote
 
 # Send, attach, sync, read, ACK, and archive.
 talkto-agent-cloud send --body "hello from Codex" --type test --sync
+talkto-agent-cloud send-remote-setup --agent-kind codex --sync
 talkto-agent-cloud send --body "See attached file." --attach ./report.md --sync
 talkto-agent-cloud sync
 talkto-agent-cloud inbox
@@ -223,6 +263,7 @@ python $pluginCliPy configure --remote-rsync "user@example.com:/home/user/codex-
 python $pluginCliPy doctor
 python $pluginCliPy doctor --check-remote
 python $pluginCliPy send --body "hello from Codex" --type test --sync
+python $pluginCliPy send-remote-setup --agent-kind codex --sync
 python $pluginCliPy send --body "See attached file." --attach .\report.md --sync
 python $pluginCliPy sync
 python $pluginCliPy inbox
