@@ -55,6 +55,14 @@ Verify that Codex sees it:
 codex plugin list | grep codex-talkto-agent-cloud
 ```
 
+If the GitHub marketplace add step fails because your local HTTPS git transport is unstable, clone the repository first and add the local checkout instead:
+
+```bash
+git clone git@github.com:Archjing/codex-talkto-agent-cloud.git ~/plugins/codex-talkto-agent-cloud
+codex plugin marketplace add ~/plugins/codex-talkto-agent-cloud
+codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
+```
+
 Open a new Codex session after installing or upgrading the plugin so the bundled skill instructions are loaded into that session.
 
 中文提示：这个插件不是 `pip install` 或 `npm install` 包。它先作为 Codex marketplace 加入，再通过 `codex plugin add` 安装。
