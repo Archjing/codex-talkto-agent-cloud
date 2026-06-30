@@ -25,7 +25,32 @@ Then run:
 
 ## Configuration
 
-Do not hardcode server addresses, agent IDs, remote paths, or thread IDs in answers or scripts. Require the user to fill a local config file.
+When the user asks to set up the plugin, prefer the low-friction `configure` flow. Ask for only the missing values needed to run it:
+
+- Required: remote mailbox rsync root, such as `user@host:/path/to/mailbox`.
+- Required: remote agent ID, such as `luke`, `claude`, or `remote-agent`.
+- Optional: local agent ID; default `codex`.
+- Optional: thread ID; default `default`.
+- Optional: local mailbox path; default `~/.local/share/codex-talkto-agent-cloud/mailbox`.
+
+Then run:
+
+```bash
+<plugin-dir>/scripts/talkto-agent-cloud configure \
+  --remote-rsync '<user@host:/path/to/mailbox>' \
+  --peer-id '<remote-agent-id>' \
+  --non-interactive
+```
+
+After configuration, run:
+
+```bash
+<plugin-dir>/scripts/talkto-agent-cloud doctor
+```
+
+Run `doctor --check-remote` only when the user wants to verify SSH/rsync connectivity. Do not modify shell startup files such as `.zshrc`, `.bashrc`, fish config, or PowerShell profiles unless the user explicitly asks.
+
+Do not hardcode server addresses, agent IDs, remote paths, or thread IDs in reusable docs or scripts. User-specific values belong in the local config file.
 
 Default config lookup order:
 
@@ -35,7 +60,7 @@ Default config lookup order:
 
 `--config` is a global option and must appear before the subcommand.
 
-Create a template:
+Manual fallback: create a template:
 
 ```bash
 scripts/talkto-agent-cloud init-config
@@ -80,6 +105,8 @@ messages/<agent-id>_to_<codex-id>/new/
 ```
 
 When explaining setup, point users to `README.md` and `docs/remote-agent-examples.md` for examples covering Codex CLI, Claude, Gemini, OpenClaw, and generic shell agents. Do not present OpenClaw as a requirement.
+
+For setup conversations, use `docs/setup-assistant.md` as the source of truth for which values to ask the user and which defaults to keep.
 
 ## Safety
 

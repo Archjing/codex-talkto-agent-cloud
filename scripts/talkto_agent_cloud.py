@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -16,6 +17,8 @@ from typing import Any
 SCHEMA_MESSAGE = "codex-talkto-agent.mailbox.v1"
 SCHEMA_ACK = "codex-talkto-agent.mailbox.ack.v1"
 DEFAULT_CONFIG = Path.home() / ".config" / "codex-talkto-agent-cloud" / "config.json"
+DEFAULT_LOCAL_ROOT = Path.home() / ".local" / "share" / "codex-talkto-agent-cloud" / "mailbox"
+AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 class ConfigError(RuntimeError):
@@ -40,18 +43,51 @@ def config_path(args: argparse.Namespace) -> Path:
     return DEFAULT_CONFIG
 
 
-def load_config(args: argparse.Namespace) -> dict[str, Any]:
-    path = config_path(args)
-    if not path.exists():
-        raise ConfigError(
-            f"Config not found: {path}\n"
-            "Create one with: talkto-agent-cloud init-config"
-        )
-    with path.open(encoding="utf-8") as f:
-        cfg = json.load(f)
+def require_promptable(args: argparse.Namespace, field: str) -> None:
+    if getattr(args, "non_interactive", False) or not sys.stdin.isatty():
+        raise ConfigError(f"Missing required setup value: {field}")
 
-    cfg = expand_config_env(cfg)
 
+def prompt_value(args: argparse.Namespace, field: str, prompt: str, default: str | None = None) -> str:
+    current = getattr(args, field, None)
+    if current:
+        return str(current)
+    if getattr(args, "non_interactive", False) or not sys.stdin.isatty():
+        if default is not None:
+            return default
+        require_promptable(args, field.replace("_", "-"))
+    require_promptable(args, field.replace("_", "-"))
+    suffix = f" [{default}]" if default is not None else ""
+    value = input(f"{prompt}{suffix}: ").strip()
+    if not value and default is not None:
+        return default
+    if not value:
+        raise ConfigError(f"Missing required setup value: {field.replace('_', '-')}")
+    return value
+
+
+def build_config_payload(
+    *,
+    local_root: str,
+    remote_rsync: str,
+    self_id: str,
+    peer_id: str,
+    thread_id: str,
+    archive_after_days: int,
+) -> dict[str, Any]:
+    return {
+        "local_root": str(Path(local_root).expanduser()),
+        "remote": {
+            "rsync_root": remote_rsync.rstrip("/"),
+        },
+        "self_id": self_id,
+        "peer_id": peer_id,
+        "thread_id": thread_id,
+        "archive_after_days": archive_after_days,
+    }
+
+
+def validate_config_values(cfg: dict[str, Any]) -> None:
     required = ["local_root", "self_id", "peer_id", "thread_id"]
     missing = [key for key in required if not cfg.get(key)]
     if not isinstance(cfg.get("remote"), dict) or not cfg["remote"].get("rsync_root"):
@@ -76,6 +112,33 @@ def load_config(args: argparse.Namespace) -> dict[str, Any]:
     unresolved = [value for value in flattened if value in placeholder_values]
     if unresolved:
         raise ConfigError(f"Config still contains template placeholders: {', '.join(unresolved)}")
+
+    for field in ["self_id", "peer_id"]:
+        value = str(cfg[field])
+        if not AGENT_ID_PATTERN.fullmatch(value):
+            raise ConfigError(
+                f"{field} must contain only letters, numbers, '.', '_' or '-': {value}"
+            )
+    if cfg["self_id"] == cfg["peer_id"]:
+        raise ConfigError("self_id and peer_id must differ")
+
+    archive_after_days = int(cfg.get("archive_after_days", 14))
+    if archive_after_days < 1:
+        raise ConfigError("archive_after_days must be >= 1")
+
+
+def load_config(args: argparse.Namespace) -> dict[str, Any]:
+    path = config_path(args)
+    if not path.exists():
+        raise ConfigError(
+            f"Config not found: {path}\n"
+            "Create one with: talkto-agent-cloud configure --remote-rsync USER@HOST:/path/to/mailbox --peer-id REMOTE_AGENT_ID"
+        )
+    with path.open(encoding="utf-8") as f:
+        cfg = json.load(f)
+
+    cfg = expand_config_env(cfg)
+    validate_config_values(cfg)
 
     cfg["_config_path"] = str(path)
     cfg["local_root"] = str(Path(cfg["local_root"]).expanduser())
@@ -266,6 +329,85 @@ def sync_mailbox(cfg: dict[str, Any], *, dry_run: bool = False) -> None:
         push(f"messages/{d}/ack", f"messages/{d}/ack")
 
 
+def cmd_configure(args: argparse.Namespace) -> int:
+    path = config_path(args)
+    if path.exists() and not args.force:
+        print(f"Config already exists: {path}", file=sys.stderr)
+        print("Use --force to overwrite, or pass --config for another file.", file=sys.stderr)
+        return 2
+
+    local_root = prompt_value(
+        args,
+        "local_root",
+        "Local mailbox directory",
+        str(DEFAULT_LOCAL_ROOT),
+    )
+    remote_rsync = prompt_value(
+        args,
+        "remote_rsync",
+        "Remote mailbox rsync root, for example user@host:/home/user/codex-mailbox",
+    )
+    self_id = prompt_value(args, "self_id", "Local agent ID", "codex")
+    peer_id = prompt_value(args, "peer_id", "Remote agent ID")
+    thread_id = prompt_value(args, "thread_id", "Default thread ID", "default")
+
+    cfg = build_config_payload(
+        local_root=local_root,
+        remote_rsync=remote_rsync,
+        self_id=self_id,
+        peer_id=peer_id,
+        thread_id=thread_id,
+        archive_after_days=args.archive_after_days,
+    )
+    validate_config_values(cfg)
+
+    root = Path(cfg["local_root"])
+    ensure_mailbox(root, cfg["self_id"], cfg["peer_id"])
+    atomic_json(path, cfg)
+
+    print(f"Config written: {path}")
+    print(f"Local mailbox: {root}")
+    print(f"Remote mailbox: {cfg['remote']['rsync_root']}")
+    print(f"Local agent ID: {cfg['self_id']}")
+    print(f"Remote agent ID: {cfg['peer_id']}")
+    print(f"Thread ID: {cfg['thread_id']}")
+
+    if args.check_remote:
+        print("Running remote dry-run sync check...")
+        sync_mailbox({**cfg, "_config_path": str(path)}, dry_run=True)
+        print("Remote dry-run sync check completed.")
+    else:
+        print("Next check: run doctor, or doctor --check-remote to test SSH/rsync access.")
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    cfg = load_config(args)
+    path = cfg["_config_path"]
+    print(f"Config: {path}")
+
+    rsync_path = shutil.which("rsync")
+    if not rsync_path:
+        print("error: rsync is not installed or not on PATH", file=sys.stderr)
+        return 2
+    print(f"rsync: {rsync_path}")
+
+    root = Path(cfg["local_root"])
+    ensure_mailbox(root, cfg["self_id"], cfg["peer_id"])
+    print(f"Local mailbox: {root}")
+    print(f"Remote mailbox: {cfg['remote']['rsync_root']}")
+    print(f"Direction out: {direction(cfg['self_id'], cfg['peer_id'])}")
+    print(f"Direction in: {direction(cfg['peer_id'], cfg['self_id'])}")
+
+    if args.check_remote:
+        print("Remote dry-run sync check: running")
+        sync_mailbox(cfg, dry_run=True)
+        print("Remote dry-run sync check: ok")
+    else:
+        print("Remote dry-run sync check: skipped; pass --check-remote to run it")
+    return 0
+
+
 def cmd_init_config(args: argparse.Namespace) -> int:
     path = config_path(args)
     if path.exists() and not args.force:
@@ -411,6 +553,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="talkto-agent-cloud")
     parser.add_argument("--config", help="config file path; overrides CODEX_TALKTO_AGENT_CONFIG")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    configure = sub.add_parser("configure", help="write a ready-to-use concrete config")
+    configure.add_argument("--remote-rsync", help="remote mailbox root, e.g. user@host:/path/to/mailbox")
+    configure.add_argument("--local-root", help="local mailbox directory")
+    configure.add_argument("--self-id", help="local agent ID; default: codex")
+    configure.add_argument("--peer-id", help="remote agent ID")
+    configure.add_argument("--thread-id", help="default thread ID; default: default")
+    configure.add_argument("--archive-after-days", type=int, default=14)
+    configure.add_argument("--force", action="store_true")
+    configure.add_argument("--check-remote", action="store_true", help="run sync --dry-run after writing config")
+    configure.add_argument("--non-interactive", action="store_true", help="fail instead of prompting for missing values")
+    configure.set_defaults(func=cmd_configure)
+
+    doctor = sub.add_parser("doctor", help="validate config and optional remote rsync access")
+    doctor.add_argument("--check-remote", action="store_true", help="run a remote rsync dry-run")
+    doctor.set_defaults(func=cmd_doctor)
 
     init = sub.add_parser("init-config", help="write a user-editable config template")
     init.add_argument("--force", action="store_true")

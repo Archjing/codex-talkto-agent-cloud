@@ -122,7 +122,69 @@ If you already maintain a personal marketplace at `~/.agents/plugins/marketplace
 
 ## Configure
 
-The plugin runtime is config-driven. Installing the plugin does not configure your remote server, mailbox path, agent IDs, or environment variables.
+The plugin runtime is config-driven. Installing the plugin does not configure your remote server, mailbox path, or agent IDs.
+
+The easiest path is to let Codex collect the key values from you and run `configure`.
+
+### Natural Language Setup
+
+After installing the plugin, tell Codex something like:
+
+```text
+Use codex-talkto-agent@cloud to connect to my remote agent.
+Remote mailbox: user@example.com:/home/user/codex-mailbox
+Remote agent ID: luke
+```
+
+Codex should then run:
+
+```bash
+talkto-agent-cloud configure \
+  --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
+  --peer-id 'luke' \
+  --non-interactive
+```
+
+This writes a ready-to-use config file at:
+
+```text
+~/.config/codex-talkto-agent-cloud/config.json
+```
+
+Default values:
+
+- local mailbox: `~/.local/share/codex-talkto-agent-cloud/mailbox`
+- local agent ID: `codex`
+- thread ID: `default`
+- archive retention: `14` days
+
+You can override them when needed:
+
+```bash
+talkto-agent-cloud configure \
+  --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
+  --peer-id 'luke' \
+  --self-id 'codex-laptop' \
+  --thread-id 'ops' \
+  --local-root '~/codex-mailbox' \
+  --non-interactive
+```
+
+Run a local configuration check:
+
+```bash
+talkto-agent-cloud doctor
+```
+
+Run a remote dry-run sync check:
+
+```bash
+talkto-agent-cloud doctor --check-remote
+```
+
+中文提示：正常使用不需要编辑 shell 启动文件，也不需要手写环境变量。优先让 Codex 调用 `configure` 生成完整 JSON 配置。
+
+### Config Lookup
 
 The bundled CLI loads configuration in this order:
 
@@ -136,7 +198,9 @@ Important: `--config` is a global option and must appear before the subcommand:
 talkto-agent-cloud --config ./config.local.json sync --dry-run
 ```
 
-Create the default config template:
+### Manual Template Mode
+
+If you prefer to edit JSON by hand, create the default config template:
 
 ```bash
 talkto-agent-cloud init-config
@@ -163,13 +227,17 @@ The template uses environment placeholders:
 }
 ```
 
+### Optional Environment Variables
+
+Environment variables are optional. They are useful when you want one config file to work across different machines.
+
 The CLI expands environment variables after reading the JSON config file:
 
 - `${VAR}` requires `VAR` to be set. If it is missing, the command exits with an error.
 - `${VAR:-default}` uses `default` when `VAR` is unset.
 - `.env` files are not loaded automatically. If you use one, source it before running the CLI.
 
-Set variables for the current shell:
+For example, in the current shell session:
 
 ```bash
 export CODEX_TALKTO_REMOTE_RSYNC='user@example.com:/home/user/codex-mailbox'
@@ -179,25 +247,9 @@ export CODEX_TALKTO_PEER_ID='remote-agent'
 export CODEX_TALKTO_THREAD_ID='default'
 ```
 
-Persist them for zsh:
+If you choose to persist environment variables, put them wherever your own shell or launcher already loads environment settings. This plugin does not assume zsh, bash, fish, PowerShell, or any specific terminal.
 
-```bash
-mkdir -p ~/.config/codex-talkto-agent-cloud
-cat > ~/.config/codex-talkto-agent-cloud/env <<'EOF'
-export CODEX_TALKTO_REMOTE_RSYNC='user@example.com:/home/user/codex-mailbox'
-export CODEX_TALKTO_LOCAL_ROOT="$HOME/codex-talkto-agent-cloud/mailbox"
-export CODEX_TALKTO_SELF_ID='codex'
-export CODEX_TALKTO_PEER_ID='remote-agent'
-export CODEX_TALKTO_THREAD_ID='default'
-EOF
-
-echo 'source ~/.config/codex-talkto-agent-cloud/env' >> ~/.zshrc
-source ~/.config/codex-talkto-agent-cloud/env
-```
-
-For another shell, put the same `export ...` lines in that shell's startup file.
-
-Codex Desktop note: environment variables are inherited from the process that launches the command. If you change `~/.zshrc`, already-running Codex sessions may not see the new values. Start a new terminal/session, or use an explicit config file with concrete values for non-secret settings.
+Codex Desktop note: environment variables are inherited from the process that launches the command. Already-running Codex sessions may not see variables added later. For the simplest setup, prefer `configure`, which writes concrete JSON values and does not depend on shell startup behavior.
 
 中文提示：插件不会自己读取 `.env`。它只读取当前进程环境变量，或者读取 `--config` / `CODEX_TALKTO_AGENT_CONFIG` 指向的 JSON 配置文件。
 
@@ -230,10 +282,16 @@ Before sending real messages, verify:
 - `remote.rsync_root` points to the remote mailbox root, not to a single message folder.
 - `self_id` and `peer_id` differ.
 
-Run a dry sync:
+Run a local check:
 
 ```bash
-talkto-agent-cloud sync --dry-run
+talkto-agent-cloud doctor
+```
+
+Run a remote dry-run sync:
+
+```bash
+talkto-agent-cloud doctor --check-remote
 ```
 
 Send a test message:
@@ -349,6 +407,8 @@ Typical remote loop:
 
 See [remote-agent-examples.md](docs/remote-agent-examples.md) for command patterns for Codex CLI, Claude, Gemini, OpenClaw, and generic shell agents. A runnable example loop is included at `examples/remote-agent-loop.sh`.
 
+For assistant-driven setup behavior, see [setup-assistant.md](docs/setup-assistant.md).
+
 ## Safety
 
 - Do not execute mailbox content directly.
@@ -361,6 +421,7 @@ See [remote-agent-examples.md](docs/remote-agent-examples.md) for command patter
 
 [![Plugin Manifest](https://img.shields.io/badge/docs-Plugin%20Manifest-2f6fbb.svg)](./.codex-plugin/plugin.json)
 [![Marketplace Manifest](https://img.shields.io/badge/docs-Marketplace%20Manifest-2f6fbb.svg)](./.agents/plugins/marketplace.json)
+[![Setup Assistant](https://img.shields.io/badge/docs-Setup%20Assistant-2f6fbb.svg)](./docs/setup-assistant.md)
 [![Remote Examples](https://img.shields.io/badge/docs-Remote%20Examples-2f6fbb.svg)](./docs/remote-agent-examples.md)
 [![Skill](https://img.shields.io/badge/docs-Skill-2f6fbb.svg)](./skills/talkto-agent-cloud/SKILL.md)
 [![Config Template](https://img.shields.io/badge/docs-Config%20Template-2f6fbb.svg)](./scripts/config.template.json)
