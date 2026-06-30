@@ -163,10 +163,23 @@ Remote mailbox: user@example.com:/home/user/codex-mailbox
 Remote agent ID: luke
 ```
 
-Codex should run one setup command. If the short command is not available yet, Codex should first locate the installed script path using `codex plugin list --json`.
+Codex should run one setup command. If the short command is not available yet, Codex should locate the installed script path using `codex plugin list --json` and call it directly:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud setup \
+plugin_cli="$(python3 - <<'PY'
+import json
+import subprocess
+
+payload = json.loads(subprocess.check_output(["codex", "plugin", "list", "--json"], text=True))
+for item in payload.get("installed", []):
+    if item.get("name") == "codex-talkto-agent-cloud":
+        print(item["source"]["path"] + "/scripts/talkto-agent-cloud")
+        break
+else:
+    raise SystemExit("codex-talkto-agent-cloud is not installed")
+PY
+)"
+"$plugin_cli" setup \
   --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
   --peer-id 'luke' \
   --non-interactive

@@ -20,10 +20,10 @@ Use defaults unless the user asks otherwise:
 
 ## Command Pattern
 
-First locate the installed CLI path without asking the user to inspect tables:
+Use this shell pattern to locate the installed CLI path without asking the user to inspect tables:
 
 ```bash
-python3 - <<'PY'
+plugin_cli="$(python3 - <<'PY'
 import json
 import subprocess
 
@@ -35,12 +35,8 @@ for item in payload.get("installed", []):
 else:
     raise SystemExit("codex-talkto-agent-cloud is not installed")
 PY
-```
-
-Then run one setup command:
-
-```bash
-<plugin-dir>/scripts/talkto-agent-cloud setup \
+)"
+"$plugin_cli" setup \
   --remote-rsync '<user@host:/path/to/mailbox>' \
   --peer-id '<remote-agent-id>' \
   --non-interactive

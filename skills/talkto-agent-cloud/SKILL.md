@@ -31,7 +31,7 @@ PY
 Then run the printed path:
 
 ```bash
-<plugin-cli> --help
+"$plugin_cli" --help
 ```
 
 ## Configuration
@@ -44,10 +44,10 @@ When the user asks to set up the plugin, prefer the low-friction `setup` flow. A
 - Optional: thread ID; default `default`.
 - Optional: local mailbox path; default `~/.local/share/codex-talkto-agent-cloud/mailbox`.
 
-Then run:
+Then run one shell command. Replace only the remote mailbox and remote agent ID values:
 
 ```bash
-python3 - <<'PY'
+plugin_cli="$(python3 - <<'PY'
 import json
 import subprocess
 
@@ -59,12 +59,8 @@ for item in payload.get("installed", []):
 else:
     raise SystemExit("codex-talkto-agent-cloud is not installed")
 PY
-```
-
-Use the printed path as `<plugin-cli>`:
-
-```bash
-<plugin-cli> setup \
+)"
+"$plugin_cli" setup \
   --remote-rsync '<user@host:/path/to/mailbox>' \
   --peer-id '<remote-agent-id>' \
   --non-interactive
