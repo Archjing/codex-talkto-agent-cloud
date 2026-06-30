@@ -52,7 +52,7 @@ codex plugin add codex-talkto-agent-cloud@codex-talkto-agent-cloud
 Verify that Codex sees it:
 
 ```bash
-codex plugin list | grep codex-talkto-agent-cloud
+codex plugin list --json
 ```
 
 If the GitHub marketplace add step fails because your local HTTPS git transport is unstable, clone the repository first and add the local checkout instead:
@@ -82,10 +82,21 @@ cd ~/plugins/codex-talkto-agent-cloud
 scripts/talkto-agent-cloud --help
 ```
 
-If you installed only through `codex plugin add`, get the installed path from `codex plugin list` and run the script from that path:
+If you installed only through `codex plugin add`, Codex can locate the script path automatically with:
 
 ```bash
-codex plugin list | grep codex-talkto-agent-cloud
+python3 - <<'PY'
+import json
+import subprocess
+
+payload = json.loads(subprocess.check_output(["codex", "plugin", "list", "--json"], text=True))
+for item in payload.get("installed", []):
+    if item.get("name") == "codex-talkto-agent-cloud":
+        print(item["source"]["path"] + "/scripts/talkto-agent-cloud")
+        break
+else:
+    raise SystemExit("codex-talkto-agent-cloud is not installed")
+PY
 ```
 
 Example:
@@ -93,6 +104,8 @@ Example:
 ```bash
 /path/from/codex-plugin-list/scripts/talkto-agent-cloud --help
 ```
+
+Manual fallback: `codex plugin list` also prints a table containing the installed plugin path.
 
 For shorter commands, install a user-level command entrypoint:
 
@@ -150,7 +163,7 @@ Remote mailbox: user@example.com:/home/user/codex-mailbox
 Remote agent ID: luke
 ```
 
-Codex should run one setup command:
+Codex should run one setup command. If the short command is not available yet, Codex should first locate the installed script path using `codex plugin list --json`.
 
 ```bash
 <plugin-dir>/scripts/talkto-agent-cloud setup \

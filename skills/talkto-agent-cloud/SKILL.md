@@ -11,16 +11,27 @@ Use the bundled CLI instead of retyping mailbox logic:
 scripts/talkto-agent-cloud --help
 ```
 
-If the current working directory is not the plugin root, first locate the installed plugin path with:
+If the current working directory is not the plugin root, locate the installed CLI path with:
 
 ```bash
-codex plugin list | grep codex-talkto-agent-cloud
+python3 - <<'PY'
+import json
+import subprocess
+
+payload = json.loads(subprocess.check_output(["codex", "plugin", "list", "--json"], text=True))
+for item in payload.get("installed", []):
+    if item.get("name") == "codex-talkto-agent-cloud":
+        print(item["source"]["path"] + "/scripts/talkto-agent-cloud")
+        break
+else:
+    raise SystemExit("codex-talkto-agent-cloud is not installed")
+PY
 ```
 
-Then run:
+Then run the printed path:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud --help
+<plugin-cli> --help
 ```
 
 ## Configuration
@@ -36,7 +47,24 @@ When the user asks to set up the plugin, prefer the low-friction `setup` flow. A
 Then run:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud setup \
+python3 - <<'PY'
+import json
+import subprocess
+
+payload = json.loads(subprocess.check_output(["codex", "plugin", "list", "--json"], text=True))
+for item in payload.get("installed", []):
+    if item.get("name") == "codex-talkto-agent-cloud":
+        print(item["source"]["path"] + "/scripts/talkto-agent-cloud")
+        break
+else:
+    raise SystemExit("codex-talkto-agent-cloud is not installed")
+PY
+```
+
+Use the printed path as `<plugin-cli>`:
+
+```bash
+<plugin-cli> setup \
   --remote-rsync '<user@host:/path/to/mailbox>' \
   --peer-id '<remote-agent-id>' \
   --non-interactive

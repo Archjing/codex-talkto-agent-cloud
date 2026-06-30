@@ -20,6 +20,7 @@ DEFAULT_CONFIG = Path.home() / ".config" / "codex-talkto-agent-cloud" / "config.
 DEFAULT_LOCAL_ROOT = Path.home() / ".local" / "share" / "codex-talkto-agent-cloud" / "mailbox"
 DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
 CLI_NAME = "talkto-agent-cloud"
+PLUGIN_NAME = "codex-talkto-agent-cloud"
 AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -121,6 +122,34 @@ def print_cli_install_result(target: Path, *, created: bool, directory: Path) ->
         print(f"PATH: warning ({directory} is not on PATH)")
         print(f"Run with full path for now: {target}")
         print("Add that directory to your shell or launcher PATH if you want the short command everywhere.")
+
+
+def locate_cli_from_codex_plugin_list() -> Path | None:
+    try:
+        proc = subprocess.run(
+            ["codex", "plugin", "list", "--json"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+    try:
+        payload = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return None
+    for item in payload.get("installed", []):
+        if item.get("name") != PLUGIN_NAME:
+            continue
+        source = item.get("source") or {}
+        path = source.get("path")
+        if not path:
+            continue
+        candidate = Path(path).expanduser() / "scripts" / CLI_NAME
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
 
 
 def collect_config_from_args(args: argparse.Namespace) -> tuple[dict[str, Any], Path]:
@@ -513,6 +542,20 @@ def cmd_install_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_locate_cli(args: argparse.Namespace) -> int:
+    current = script_path()
+    if current.is_file():
+        print(current)
+        return 0
+    if args.codex_list:
+        located = locate_cli_from_codex_plugin_list()
+        if located:
+            print(located)
+            return 0
+    print("error: could not locate talkto-agent-cloud CLI", file=sys.stderr)
+    return 2
+
+
 def cmd_uninstall_cli(args: argparse.Namespace) -> int:
     target = bin_dir(args) / CLI_NAME
     if not target.exists() and not target.is_symlink():
@@ -738,6 +781,10 @@ def build_parser() -> argparse.ArgumentParser:
     install_cli.add_argument("--bin-dir", help="directory for the entrypoint; default: ~/.local/bin")
     install_cli.add_argument("--force", action="store_true")
     install_cli.set_defaults(func=cmd_install_cli)
+
+    locate_cli = sub.add_parser("locate-cli", help="print this plugin's CLI path")
+    locate_cli.add_argument("--codex-list", action="store_true", help="also try codex plugin list --json")
+    locate_cli.set_defaults(func=cmd_locate_cli)
 
     uninstall_cli = sub.add_parser("uninstall-cli", help="remove the user-level CLI entrypoint")
     uninstall_cli.add_argument("--bin-dir", help="directory containing the entrypoint; default: ~/.local/bin")
