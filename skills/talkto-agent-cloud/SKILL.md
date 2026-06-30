@@ -36,7 +36,13 @@ When the user asks to set up the plugin, prefer the low-friction `configure` flo
 Then run:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud configure \
+<plugin-dir>/scripts/talkto-agent-cloud install-cli
+```
+
+If the installed bin directory is not on PATH, keep using the full path printed by `install-cli`. Otherwise continue with:
+
+```bash
+talkto-agent-cloud configure \
   --remote-rsync '<user@host:/path/to/mailbox>' \
   --peer-id '<remote-agent-id>' \
   --non-interactive
@@ -45,7 +51,7 @@ Then run:
 After configuration, run:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud doctor
+talkto-agent-cloud doctor
 ```
 
 Run `doctor --check-remote` only when the user wants to verify SSH/rsync connectivity. Do not modify shell startup files such as `.zshrc`, `.bashrc`, fish config, or PowerShell profiles unless the user explicitly asks.

@@ -18,6 +18,8 @@ SCHEMA_MESSAGE = "codex-talkto-agent.mailbox.v1"
 SCHEMA_ACK = "codex-talkto-agent.mailbox.ack.v1"
 DEFAULT_CONFIG = Path.home() / ".config" / "codex-talkto-agent-cloud" / "config.json"
 DEFAULT_LOCAL_ROOT = Path.home() / ".local" / "share" / "codex-talkto-agent-cloud" / "mailbox"
+DEFAULT_BIN_DIR = Path.home() / ".local" / "bin"
+CLI_NAME = "talkto-agent-cloud"
 AGENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -41,6 +43,42 @@ def config_path(args: argparse.Namespace) -> Path:
     if env_path:
         return Path(env_path).expanduser()
     return DEFAULT_CONFIG
+
+
+def script_path() -> Path:
+    return Path(__file__).with_name("talkto-agent-cloud").resolve()
+
+
+def bin_dir(args: argparse.Namespace) -> Path:
+    if getattr(args, "bin_dir", None):
+        return Path(args.bin_dir).expanduser()
+    return DEFAULT_BIN_DIR
+
+
+def path_entries() -> list[Path]:
+    return [Path(item).expanduser() for item in os.environ.get("PATH", "").split(os.pathsep) if item]
+
+
+def is_on_path(path: Path) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    for entry in path_entries():
+        try:
+            if entry.resolve() == resolved:
+                return True
+        except OSError:
+            if entry == path:
+                return True
+    return False
+
+
+def write_cli_wrapper(target: Path, source: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = f"#!/usr/bin/env sh\nexec {str(source)!r} \"$@\"\n"
+    target.write_text(payload, encoding="utf-8")
+    target.chmod(0o755)
 
 
 def require_promptable(args: argparse.Namespace, field: str) -> None:
@@ -381,10 +419,72 @@ def cmd_configure(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_cli(args: argparse.Namespace) -> int:
+    directory = bin_dir(args)
+    source = script_path()
+    target = directory / CLI_NAME
+    if target.exists() or target.is_symlink():
+        try:
+            if target.resolve() == source:
+                print(f"CLI already installed: {target}")
+                return 0
+        except OSError:
+            pass
+        if not args.force:
+            print(f"CLI target already exists: {target}", file=sys.stderr)
+            print("Use --force to replace it, or pass --bin-dir for another directory.", file=sys.stderr)
+            return 2
+        target.unlink()
+
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(source)
+        install_kind = "symlink"
+    except OSError:
+        write_cli_wrapper(target, source)
+        install_kind = "wrapper"
+
+    print(f"CLI installed: {target}")
+    print(f"Target: {source}")
+    print(f"Mode: {install_kind}")
+    if is_on_path(directory):
+        print(f"PATH: ok ({directory})")
+    else:
+        print(f"PATH: warning ({directory} is not on PATH)")
+        print(f"Run with full path for now: {target}")
+        print("Add that directory to your shell or launcher PATH if you want the short command everywhere.")
+    return 0
+
+
+def cmd_uninstall_cli(args: argparse.Namespace) -> int:
+    target = bin_dir(args) / CLI_NAME
+    if not target.exists() and not target.is_symlink():
+        print(f"CLI is not installed at: {target}")
+        return 0
+    try:
+        linked_to_self = target.resolve() == script_path()
+    except OSError:
+        linked_to_self = False
+    if not linked_to_self and not args.force:
+        print(f"Refusing to remove CLI target not owned by this plugin: {target}", file=sys.stderr)
+        print("Use --force to remove it anyway.", file=sys.stderr)
+        return 2
+    target.unlink()
+    print(f"CLI removed: {target}")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     cfg = load_config(args)
     path = cfg["_config_path"]
     print(f"Config: {path}")
+
+    found_cli = shutil.which(CLI_NAME)
+    if found_cli:
+        print(f"CLI: {found_cli}")
+    else:
+        print(f"CLI: warning ({CLI_NAME} is not on PATH)")
+        print(f"CLI install helper: {script_path()} install-cli")
 
     rsync_path = shutil.which("rsync")
     if not rsync_path:
@@ -565,6 +665,16 @@ def build_parser() -> argparse.ArgumentParser:
     configure.add_argument("--check-remote", action="store_true", help="run sync --dry-run after writing config")
     configure.add_argument("--non-interactive", action="store_true", help="fail instead of prompting for missing values")
     configure.set_defaults(func=cmd_configure)
+
+    install_cli = sub.add_parser("install-cli", help="install a user-level CLI entrypoint")
+    install_cli.add_argument("--bin-dir", help="directory for the entrypoint; default: ~/.local/bin")
+    install_cli.add_argument("--force", action="store_true")
+    install_cli.set_defaults(func=cmd_install_cli)
+
+    uninstall_cli = sub.add_parser("uninstall-cli", help="remove the user-level CLI entrypoint")
+    uninstall_cli.add_argument("--bin-dir", help="directory containing the entrypoint; default: ~/.local/bin")
+    uninstall_cli.add_argument("--force", action="store_true")
+    uninstall_cli.set_defaults(func=cmd_uninstall_cli)
 
     doctor = sub.add_parser("doctor", help="validate config and optional remote rsync access")
     doctor.add_argument("--check-remote", action="store_true", help="run a remote rsync dry-run")

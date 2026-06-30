@@ -94,13 +94,27 @@ Example:
 /path/from/codex-plugin-list/scripts/talkto-agent-cloud --help
 ```
 
-For shorter commands, define your own shell alias after you know the installed path:
+For shorter commands, install a user-level command entrypoint:
 
 ```bash
-alias talkto-agent-cloud='/path/from/codex-plugin-list/scripts/talkto-agent-cloud'
+/path/from/codex-plugin-list/scripts/talkto-agent-cloud install-cli
 ```
 
-The rest of this README uses `talkto-agent-cloud` for readability. If you do not define the alias, replace it with `<plugin-dir>/scripts/talkto-agent-cloud`.
+This creates:
+
+```text
+~/.local/bin/talkto-agent-cloud
+```
+
+It does not edit `.zshrc`, `.bashrc`, fish config, PowerShell profiles, or any other shell startup file. If `~/.local/bin` is not on your PATH, the command prints the full path you can use immediately.
+
+You can also choose another directory:
+
+```bash
+/path/from/codex-plugin-list/scripts/talkto-agent-cloud install-cli --bin-dir ~/bin
+```
+
+The rest of this README uses `talkto-agent-cloud` for readability. If the short command is not on PATH, replace it with `<plugin-dir>/scripts/talkto-agent-cloud` or the full path printed by `install-cli`.
 
 ### Local Development Install
 
@@ -136,7 +150,13 @@ Remote mailbox: user@example.com:/home/user/codex-mailbox
 Remote agent ID: luke
 ```
 
-Codex should then run:
+Codex should first make the short command available if needed:
+
+```bash
+<plugin-dir>/scripts/talkto-agent-cloud install-cli
+```
+
+Then it should run:
 
 ```bash
 talkto-agent-cloud configure \
