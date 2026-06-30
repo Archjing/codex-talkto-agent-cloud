@@ -138,7 +138,7 @@ If you already maintain a personal marketplace at `~/.agents/plugins/marketplace
 
 The plugin runtime is config-driven. Installing the plugin does not configure your remote server, mailbox path, or agent IDs.
 
-The easiest path is to let Codex collect the key values from you and run `configure`.
+The easiest path is to let Codex collect the key values from you and run `setup`.
 
 ### Natural Language Setup
 
@@ -150,22 +150,18 @@ Remote mailbox: user@example.com:/home/user/codex-mailbox
 Remote agent ID: luke
 ```
 
-Codex should first make the short command available if needed:
+Codex should run one setup command:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud install-cli
-```
-
-Then it should run:
-
-```bash
-talkto-agent-cloud configure \
+<plugin-dir>/scripts/talkto-agent-cloud setup \
   --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
   --peer-id 'luke' \
   --non-interactive
 ```
 
-This writes a ready-to-use config file at:
+This installs the short command when possible, writes a ready-to-use config file, creates the local mailbox folders, and runs a local `doctor` check.
+
+The config file is written at:
 
 ```text
 ~/.config/codex-talkto-agent-cloud/config.json
@@ -181,7 +177,7 @@ Default values:
 You can override them when needed:
 
 ```bash
-talkto-agent-cloud configure \
+talkto-agent-cloud setup \
   --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
   --peer-id 'luke' \
   --self-id 'codex-laptop' \
@@ -202,7 +198,20 @@ Run a remote dry-run sync check:
 talkto-agent-cloud doctor --check-remote
 ```
 
-中文提示：正常使用不需要编辑 shell 启动文件，也不需要手写环境变量。优先让 Codex 调用 `configure` 生成完整 JSON 配置。
+中文提示：正常使用不需要编辑 shell 启动文件，也不需要手写环境变量。优先让 Codex 调用 `setup` 一次完成命令入口、JSON 配置和本地检查。
+
+### Step-By-Step Setup
+
+If you want to run each step separately:
+
+```bash
+<plugin-dir>/scripts/talkto-agent-cloud install-cli
+talkto-agent-cloud configure \
+  --remote-rsync 'user@example.com:/home/user/codex-mailbox' \
+  --peer-id 'luke' \
+  --non-interactive
+talkto-agent-cloud doctor
+```
 
 ### Config Lookup
 
@@ -269,7 +278,7 @@ export CODEX_TALKTO_THREAD_ID='default'
 
 If you choose to persist environment variables, put them wherever your own shell or launcher already loads environment settings. This plugin does not assume zsh, bash, fish, PowerShell, or any specific terminal.
 
-Codex Desktop note: environment variables are inherited from the process that launches the command. Already-running Codex sessions may not see variables added later. For the simplest setup, prefer `configure`, which writes concrete JSON values and does not depend on shell startup behavior.
+Codex Desktop note: environment variables are inherited from the process that launches the command. Already-running Codex sessions may not see variables added later. For the simplest setup, prefer `setup`, which writes concrete JSON values and does not depend on shell startup behavior.
 
 中文提示：插件不会自己读取 `.env`。它只读取当前进程环境变量，或者读取 `--config` / `CODEX_TALKTO_AGENT_CONFIG` 指向的 JSON 配置文件。
 

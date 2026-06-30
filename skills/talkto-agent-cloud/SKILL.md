@@ -25,7 +25,7 @@ Then run:
 
 ## Configuration
 
-When the user asks to set up the plugin, prefer the low-friction `configure` flow. Ask for only the missing values needed to run it:
+When the user asks to set up the plugin, prefer the low-friction `setup` flow. Ask for only the missing values needed to run it:
 
 - Required: remote mailbox rsync root, such as `user@host:/path/to/mailbox`.
 - Required: remote agent ID, such as `luke`, `claude`, or `remote-agent`.
@@ -36,23 +36,13 @@ When the user asks to set up the plugin, prefer the low-friction `configure` flo
 Then run:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud install-cli
-```
-
-If the installed bin directory is not on PATH, keep using the full path printed by `install-cli`. Otherwise continue with:
-
-```bash
-talkto-agent-cloud configure \
+<plugin-dir>/scripts/talkto-agent-cloud setup \
   --remote-rsync '<user@host:/path/to/mailbox>' \
   --peer-id '<remote-agent-id>' \
   --non-interactive
 ```
 
-After configuration, run:
-
-```bash
-talkto-agent-cloud doctor
-```
+`setup` installs the short CLI entrypoint when possible, writes the config file, creates local mailbox folders, and runs local `doctor`.
 
 Run `doctor --check-remote` only when the user wants to verify SSH/rsync connectivity. Do not modify shell startup files such as `.zshrc`, `.bashrc`, fish config, or PowerShell profiles unless the user explicitly asks.
 

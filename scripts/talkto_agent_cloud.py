@@ -81,6 +81,132 @@ def write_cli_wrapper(target: Path, source: Path) -> None:
     target.chmod(0o755)
 
 
+def install_cli_entry(directory: Path, *, force: bool = False) -> tuple[Path, bool]:
+    source = script_path()
+    target = directory / CLI_NAME
+    if target.exists() or target.is_symlink():
+        try:
+            if target.resolve() == source:
+                return target, False
+        except OSError:
+            pass
+        if not force:
+            raise ConfigError(
+                f"CLI target already exists: {target}\n"
+                "Use --force to replace it, or pass --bin-dir for another directory."
+            )
+        target.unlink()
+
+    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        target.symlink_to(source)
+    except OSError:
+        write_cli_wrapper(target, source)
+    return target, True
+
+
+def print_cli_install_result(target: Path, *, created: bool, directory: Path) -> None:
+    if created:
+        print(f"CLI installed: {target}")
+        print(f"Target: {script_path()}")
+    else:
+        print(f"CLI already installed: {target}")
+    if target.is_symlink():
+        print("Mode: symlink")
+    else:
+        print("Mode: wrapper")
+    if is_on_path(directory):
+        print(f"PATH: ok ({directory})")
+    else:
+        print(f"PATH: warning ({directory} is not on PATH)")
+        print(f"Run with full path for now: {target}")
+        print("Add that directory to your shell or launcher PATH if you want the short command everywhere.")
+
+
+def collect_config_from_args(args: argparse.Namespace) -> tuple[dict[str, Any], Path]:
+    local_root = prompt_value(
+        args,
+        "local_root",
+        "Local mailbox directory",
+        str(DEFAULT_LOCAL_ROOT),
+    )
+    remote_rsync = prompt_value(
+        args,
+        "remote_rsync",
+        "Remote mailbox rsync root, for example user@host:/home/user/codex-mailbox",
+    )
+    self_id = prompt_value(args, "self_id", "Local agent ID", "codex")
+    peer_id = prompt_value(args, "peer_id", "Remote agent ID")
+    thread_id = prompt_value(args, "thread_id", "Default thread ID", "default")
+
+    cfg = build_config_payload(
+        local_root=local_root,
+        remote_rsync=remote_rsync,
+        self_id=self_id,
+        peer_id=peer_id,
+        thread_id=thread_id,
+        archive_after_days=args.archive_after_days,
+    )
+    validate_config_values(cfg)
+    return cfg, Path(cfg["local_root"])
+
+
+def write_concrete_config(args: argparse.Namespace) -> tuple[dict[str, Any], Path, Path]:
+    path = config_path(args)
+    if path.exists() and not args.force:
+        raise ConfigError(
+            f"Config already exists: {path}\n"
+            "Use --force to overwrite, or pass --config for another file."
+        )
+
+    cfg, root = collect_config_from_args(args)
+    ensure_mailbox(root, cfg["self_id"], cfg["peer_id"])
+    atomic_json(path, cfg)
+    return cfg, root, path
+
+
+def print_config_result(cfg: dict[str, Any], root: Path, path: Path) -> None:
+    print(f"Config written: {path}")
+    print(f"Local mailbox: {root}")
+    print(f"Remote mailbox: {cfg['remote']['rsync_root']}")
+    print(f"Local agent ID: {cfg['self_id']}")
+    print(f"Remote agent ID: {cfg['peer_id']}")
+    print(f"Thread ID: {cfg['thread_id']}")
+
+
+def doctor_config(cfg: dict[str, Any], *, check_remote: bool) -> int:
+    path = cfg.get("_config_path", "<memory>")
+    print(f"Config: {path}")
+
+    found_cli = shutil.which(CLI_NAME)
+    if found_cli:
+        print(f"CLI: {found_cli}")
+    else:
+        print(f"CLI: warning ({CLI_NAME} is not on PATH)")
+        print(f"CLI install helper: {script_path()} install-cli")
+
+    rsync_path = shutil.which("rsync")
+    if not rsync_path:
+        print("error: rsync is not installed or not on PATH", file=sys.stderr)
+        return 2
+    print(f"rsync: {rsync_path}")
+
+    root = Path(cfg["local_root"])
+    ensure_mailbox(root, cfg["self_id"], cfg["peer_id"])
+    print(f"Local mailbox: {root}")
+    print(f"Remote mailbox: {cfg['remote']['rsync_root']}")
+    print(f"Direction out: {direction(cfg['self_id'], cfg['peer_id'])}")
+    print(f"Direction in: {direction(cfg['peer_id'], cfg['self_id'])}")
+
+    if check_remote:
+        print("Remote dry-run sync check: running")
+        sync_mailbox(cfg, dry_run=True)
+        print("Remote dry-run sync check: ok")
+    else:
+        print("Remote dry-run sync check: skipped; pass --check-remote to run it")
+    return 0
+
+
 def require_promptable(args: argparse.Namespace, field: str) -> None:
     if getattr(args, "non_interactive", False) or not sys.stdin.isatty():
         raise ConfigError(f"Missing required setup value: {field}")
@@ -170,7 +296,7 @@ def load_config(args: argparse.Namespace) -> dict[str, Any]:
     if not path.exists():
         raise ConfigError(
             f"Config not found: {path}\n"
-            "Create one with: talkto-agent-cloud configure --remote-rsync USER@HOST:/path/to/mailbox --peer-id REMOTE_AGENT_ID"
+            "Create one with: talkto-agent-cloud setup --remote-rsync USER@HOST:/path/to/mailbox --peer-id REMOTE_AGENT_ID"
         )
     with path.open(encoding="utf-8") as f:
         cfg = json.load(f)
@@ -368,47 +494,8 @@ def sync_mailbox(cfg: dict[str, Any], *, dry_run: bool = False) -> None:
 
 
 def cmd_configure(args: argparse.Namespace) -> int:
-    path = config_path(args)
-    if path.exists() and not args.force:
-        print(f"Config already exists: {path}", file=sys.stderr)
-        print("Use --force to overwrite, or pass --config for another file.", file=sys.stderr)
-        return 2
-
-    local_root = prompt_value(
-        args,
-        "local_root",
-        "Local mailbox directory",
-        str(DEFAULT_LOCAL_ROOT),
-    )
-    remote_rsync = prompt_value(
-        args,
-        "remote_rsync",
-        "Remote mailbox rsync root, for example user@host:/home/user/codex-mailbox",
-    )
-    self_id = prompt_value(args, "self_id", "Local agent ID", "codex")
-    peer_id = prompt_value(args, "peer_id", "Remote agent ID")
-    thread_id = prompt_value(args, "thread_id", "Default thread ID", "default")
-
-    cfg = build_config_payload(
-        local_root=local_root,
-        remote_rsync=remote_rsync,
-        self_id=self_id,
-        peer_id=peer_id,
-        thread_id=thread_id,
-        archive_after_days=args.archive_after_days,
-    )
-    validate_config_values(cfg)
-
-    root = Path(cfg["local_root"])
-    ensure_mailbox(root, cfg["self_id"], cfg["peer_id"])
-    atomic_json(path, cfg)
-
-    print(f"Config written: {path}")
-    print(f"Local mailbox: {root}")
-    print(f"Remote mailbox: {cfg['remote']['rsync_root']}")
-    print(f"Local agent ID: {cfg['self_id']}")
-    print(f"Remote agent ID: {cfg['peer_id']}")
-    print(f"Thread ID: {cfg['thread_id']}")
+    cfg, root, path = write_concrete_config(args)
+    print_config_result(cfg, root, path)
 
     if args.check_remote:
         print("Running remote dry-run sync check...")
@@ -421,38 +508,8 @@ def cmd_configure(args: argparse.Namespace) -> int:
 
 def cmd_install_cli(args: argparse.Namespace) -> int:
     directory = bin_dir(args)
-    source = script_path()
-    target = directory / CLI_NAME
-    if target.exists() or target.is_symlink():
-        try:
-            if target.resolve() == source:
-                print(f"CLI already installed: {target}")
-                return 0
-        except OSError:
-            pass
-        if not args.force:
-            print(f"CLI target already exists: {target}", file=sys.stderr)
-            print("Use --force to replace it, or pass --bin-dir for another directory.", file=sys.stderr)
-            return 2
-        target.unlink()
-
-    directory.mkdir(parents=True, exist_ok=True)
-    try:
-        target.symlink_to(source)
-        install_kind = "symlink"
-    except OSError:
-        write_cli_wrapper(target, source)
-        install_kind = "wrapper"
-
-    print(f"CLI installed: {target}")
-    print(f"Target: {source}")
-    print(f"Mode: {install_kind}")
-    if is_on_path(directory):
-        print(f"PATH: ok ({directory})")
-    else:
-        print(f"PATH: warning ({directory} is not on PATH)")
-        print(f"Run with full path for now: {target}")
-        print("Add that directory to your shell or launcher PATH if you want the short command everywhere.")
+    target, created = install_cli_entry(directory, force=args.force)
+    print_cli_install_result(target, created=created, directory=directory)
     return 0
 
 
@@ -476,35 +533,32 @@ def cmd_uninstall_cli(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     cfg = load_config(args)
-    path = cfg["_config_path"]
-    print(f"Config: {path}")
+    return doctor_config(cfg, check_remote=args.check_remote)
 
-    found_cli = shutil.which(CLI_NAME)
-    if found_cli:
-        print(f"CLI: {found_cli}")
-    else:
-        print(f"CLI: warning ({CLI_NAME} is not on PATH)")
-        print(f"CLI install helper: {script_path()} install-cli")
 
-    rsync_path = shutil.which("rsync")
-    if not rsync_path:
-        print("error: rsync is not installed or not on PATH", file=sys.stderr)
-        return 2
-    print(f"rsync: {rsync_path}")
+def cmd_setup(args: argparse.Namespace) -> int:
+    path = config_path(args)
+    if path.exists() and not args.force:
+        raise ConfigError(
+            f"Config already exists: {path}\n"
+            "Use --force to overwrite, or pass --config for another file."
+        )
 
-    root = Path(cfg["local_root"])
-    ensure_mailbox(root, cfg["self_id"], cfg["peer_id"])
-    print(f"Local mailbox: {root}")
-    print(f"Remote mailbox: {cfg['remote']['rsync_root']}")
-    print(f"Direction out: {direction(cfg['self_id'], cfg['peer_id'])}")
-    print(f"Direction in: {direction(cfg['peer_id'], cfg['self_id'])}")
+    directory = bin_dir(args)
+    target, created = install_cli_entry(directory, force=args.force_cli)
+    print_cli_install_result(target, created=created, directory=directory)
 
-    if args.check_remote:
-        print("Remote dry-run sync check: running")
-        sync_mailbox(cfg, dry_run=True)
-        print("Remote dry-run sync check: ok")
-    else:
-        print("Remote dry-run sync check: skipped; pass --check-remote to run it")
+    cfg, root, path = write_concrete_config(args)
+    cfg["_config_path"] = str(path)
+    cfg["local_root"] = str(root)
+    cfg["archive_after_days"] = int(cfg.get("archive_after_days", 14))
+    print_config_result(cfg, root, path)
+
+    print("Running local doctor...")
+    doctor_rc = doctor_config(cfg, check_remote=args.check_remote)
+    if doctor_rc != 0:
+        return doctor_rc
+    print("Setup complete.")
     return 0
 
 
@@ -653,6 +707,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="talkto-agent-cloud")
     parser.add_argument("--config", help="config file path; overrides CODEX_TALKTO_AGENT_CONFIG")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    setup = sub.add_parser("setup", help="install CLI entrypoint, write config, and run doctor")
+    setup.add_argument("--remote-rsync", help="remote mailbox root, e.g. user@host:/path/to/mailbox")
+    setup.add_argument("--local-root", help="local mailbox directory")
+    setup.add_argument("--self-id", help="local agent ID; default: codex")
+    setup.add_argument("--peer-id", help="remote agent ID")
+    setup.add_argument("--thread-id", help="default thread ID; default: default")
+    setup.add_argument("--archive-after-days", type=int, default=14)
+    setup.add_argument("--bin-dir", help="directory for the entrypoint; default: ~/.local/bin")
+    setup.add_argument("--force", action="store_true", help="overwrite an existing config")
+    setup.add_argument("--force-cli", action="store_true", help="replace an existing CLI entrypoint")
+    setup.add_argument("--check-remote", action="store_true", help="run a remote rsync dry-run")
+    setup.add_argument("--non-interactive", action="store_true", help="fail instead of prompting for missing values")
+    setup.set_defaults(func=cmd_setup)
 
     configure = sub.add_parser("configure", help="write a ready-to-use concrete config")
     configure.add_argument("--remote-rsync", help="remote mailbox root, e.g. user@host:/path/to/mailbox")

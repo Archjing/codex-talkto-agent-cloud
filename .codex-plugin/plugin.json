@@ -1,6 +1,6 @@
 {
   "name": "codex-talkto-agent-cloud",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Codex plugin for rsync mailbox messaging with remote agents. Codex 通过 rsync mailbox 与远端任意 Agent 互发消息的插件。",
   "author": {
     "name": "ZJ"

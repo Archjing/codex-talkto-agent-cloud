@@ -20,22 +20,16 @@ Use defaults unless the user asks otherwise:
 
 ## Command Pattern
 
-First make the short command available if needed:
+Run one setup command:
 
 ```bash
-<plugin-dir>/scripts/talkto-agent-cloud install-cli
-```
-
-If `install-cli` reports that the bin directory is not on PATH, use the full path printed by that command, or keep using `<plugin-dir>/scripts/talkto-agent-cloud`.
-
-Run:
-
-```bash
-talkto-agent-cloud configure \
+<plugin-dir>/scripts/talkto-agent-cloud setup \
   --remote-rsync '<user@host:/path/to/mailbox>' \
   --peer-id '<remote-agent-id>' \
   --non-interactive
 ```
+
+`setup` installs the short CLI entrypoint when possible, writes the config file, creates local mailbox folders, and runs local `doctor`.
 
 If the user gives overrides, add only the needed flags:
 
@@ -46,9 +40,24 @@ If the user gives overrides, add only the needed flags:
 --archive-after-days 14
 ```
 
+If `setup` reports that the bin directory is not on PATH, use the full path printed by that command for follow-up commands, or keep using `<plugin-dir>/scripts/talkto-agent-cloud`.
+
+## Step-By-Step Fallback
+
+Use the older split flow only when setup needs diagnosis:
+
+```bash
+<plugin-dir>/scripts/talkto-agent-cloud install-cli
+talkto-agent-cloud configure \
+  --remote-rsync '<user@host:/path/to/mailbox>' \
+  --peer-id '<remote-agent-id>' \
+  --non-interactive
+talkto-agent-cloud doctor
+```
+
 ## Verification
 
-Always run the local check after writing config:
+`setup` already runs local `doctor`. For a later local check, run:
 
 ```bash
 talkto-agent-cloud doctor
@@ -64,7 +73,7 @@ talkto-agent-cloud doctor --check-remote
 
 - Do not edit shell startup files by default.
 - Do not require `.env`.
-- Do not require the user to locate the plugin directory repeatedly; use `install-cli` when practical.
+- Do not require the user to locate the plugin directory repeatedly; use `setup` first.
 - Do not store secrets in messages, attachments, or config.
 - Do not use `rsync --delete`.
 - Do not execute mailbox message content.
